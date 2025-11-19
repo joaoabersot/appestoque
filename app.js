@@ -1,109 +1,132 @@
-const startButton = document.getElementById('startButton');
+const startButton = document.getElementById('startButton'); // Este botão será "Capturar & Ler"
 const codeList = document.getElementById('codeList');
-const interactive = document.getElementById('interactive');
+const video = document.createElement('video'); // Usaremos um elemento <video> para exibir a prévia da câmera
+const canvas = document.createElement('canvas'); // Usaremos um <canvas> para tirar a foto
+const interactive = document.getElementById('interactive'); // Div para conter o vídeo e o canvas
 
-// Estados do leitor
-let isScanning = false;
-let hasDetected = false;
-let codesFound = new Set(); // Usamos um Set para garantir códigos únicos
+// Adiciona o elemento de vídeo ao DOM para prévia da câmera
+video.style.width = '100%';
+video.style.height = 'auto';
+video.autoplay = true;
+interactive.appendChild(video);
 
-// Função principal de inicialização do Quagga
-function initQuagga() {
-    // 1. Resetar estado
-    hasDetected = false;
-    startButton.textContent = "Aguardando Leitura...";
-    startButton.disabled = true; // Desabilita o botão enquanto escaneia
+// Contexto do canvas para desenhar a imagem
+const context = canvas.getContext('2d');
 
-    // 2. Inicializar o Quagga (apenas se não estiver ativo)
-    if (!isScanning) {
-        Quagga.init({
-            inputStream: {
-                name: "Live",
-                type: "LiveStream",
-                target: interactive,
-                constraints: {
-                    width: 640,
-                    height: 480,
-                    facingMode: "environment"
-                },
-            },
-            decoder: {
-                readers: ["ean_reader", "code_128_reader", "upc_reader", "code_39_reader"]
-            },
-        }, function(err) {
-            if (err) {
-                console.error("Erro ao iniciar a câmera:", err);
-                startButton.textContent = "Erro na Câmera";
-                startButton.disabled = false;
-                return;
+let isCameraActive = false; // Estado para saber se a câmera está ligada
+
+// Função para iniciar a câmera e mostrar a prévia
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: {
+                facingMode: "environment", // Câmera traseira do celular
+                width: { ideal: 640 },
+                height: { ideal: 480 }
             }
-            console.log("Inicialização do Quagga concluída. Começando a escanear.");
-            Quagga.start();
-            isScanning = true;
-            startButton.textContent = "Aguardando Leitura...";
         });
-    } else {
-        // Se já está inicializado, apenas garante que está rodando.
-        Quagga.start();
+        video.srcObject = stream;
+        video.play();
+        isCameraActive = true;
+        startButton.textContent = "Capturar & Ler Código";
+        startButton.disabled = false;
+        console.log("Câmera iniciada.");
+        
+        // Esconde o canvas quando a câmera está ativa para mostrar o vídeo
+        canvas.style.display = 'none'; 
+        video.style.display = 'block';
+
+    } catch (err) {
+        console.error("Erro ao acessar a câmera:", err);
+        alert("Erro ao acessar a câmera. Verifique as permissões.");
+        startButton.textContent = "Erro na Câmera";
+        startButton.disabled = true;
     }
 }
 
-
-// Função que é chamada a cada código de barras decodificado
-Quagga.onDetected(function(result) {
-    if (hasDetected) {
-        return; // Ignora se já detectou algo nesta sessão
+// Função para parar a câmera
+function stopCamera() {
+    if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
     }
-    
-    const code = result.codeResult.code;
-
-    // 1. Marca como detectado para parar a leitura imediata
-    hasDetected = true; 
-    
-    // 2. Para a leitura de forma temporária (mantém a câmera ativa, mas pausa o processamento)
-    Quagga.stop(); 
-    
-    // 3. Processa e exibe o código
-    if (!codesFound.has(code)) {
-        codesFound.add(code);
-        console.log("Código lido:", code);
-        
-        // Adiciona o código à lista na tela
-        const newItem = document.createElement('li');
-        newItem.className = 'codeItem';
-        newItem.textContent = code;
-        codeList.prepend(newItem);
-    }
-    
-    // 4. Atualiza o botão para Nova Leitura
-    startButton.textContent = `LIDO: ${code} (Nova Leitura)`;
+    isCameraActive = false;
+    startButton.textContent = "Iniciar Câmera";
     startButton.disabled = false;
+    console.log("Câmera parada.");
     
-    // Opcional: Feedback visual/sonoro
-    // if ('vibrate' in navigator) {
-    //     navigator.vibrate(200);
-    // }
-});
+    // Mostra o canvas (se houver imagem) ou esconde ambos se não for iniciar nova leitura
+    video.style.display = 'none'; 
+    canvas.style.display = 'block'; // Mostra a última captura se houver
+}
+
+// Função para capturar a imagem e processar
+async function captureAndDecode() {
+    if (!isCameraActive || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        alert("Câmera não está pronta ou ativa.");
+        return;
+    }
+
+    startButton.disabled = true;
+    startButton.textContent = "Decodificando...";
+
+    // Ajusta o tamanho do canvas para o tamanho do vídeo
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Converte a imagem do canvas para Data URL (base64)
+    const imageDataURL = canvas.toDataURL('image/jpeg', 0.9);
+
+    // Esconde o vídeo e mostra a imagem capturada no canvas
+    video.style.display = 'none';
+    canvas.style.display = 'block';
+
+    // Para a câmera imediatamente após a captura
+    stopCamera();
+
+    // Inicia a decodificação da imagem
+    Quagga.decodeSingle({
+        src: imageDataURL,
+        numOfWorkers: 0, // Importante para rodar na thread principal e ser mais rápido para uma única imagem
+        decoder: {
+            readers: ["ean_reader", "code_128_reader", "upc_reader", "code_39_reader", "ean_8_reader", "code_93_reader"]
+        },
+    }, function(result) {
+        if (result && result.codeResult) {
+            const code = result.codeResult.code;
+            console.log("Código lido:", code);
+            
+            // Adiciona o código à lista
+            const newItem = document.createElement('li');
+            newItem.className = 'codeItem';
+            newItem.textContent = code;
+            codeList.prepend(newItem);
+
+            // Feedback visual/sonoro
+            if ('vibrate' in navigator) {
+                navigator.vibrate(200);
+            }
+            startButton.textContent = "Sucesso! Iniciar Câmera para Nova Leitura";
+        } else {
+            console.log("Nenhum código encontrado na imagem.");
+            startButton.textContent = "Não Encontrado. Iniciar Câmera para Nova Leitura";
+        }
+        startButton.disabled = false; // Habilita o botão para iniciar nova leitura
+    });
+}
 
 
-// Função para gerenciar o clique do botão
+// Manipulador do botão principal
 startButton.addEventListener('click', () => {
-    // Se o sistema já leu um código, o botão serve para iniciar uma NOVA leitura
-    if (hasDetected) {
-        // Reinicia a câmera e o processamento de quadros
-        initQuagga(); 
-    } else if (isScanning) {
-        // Se estiver escaneando e o usuário clicar, para tudo
-        Quagga.stop();
-        isScanning = false;
-        startButton.textContent = "Leitor Parado (Ativar)";
+    if (isCameraActive) {
+        // Se a câmera já está ativa, o botão "Capturar & Ler"
+        captureAndDecode();
     } else {
-        // Se estiver parado, inicia a leitura
-        initQuagga();
+        // Se a câmera está parada, o botão "Iniciar Câmera"
+        startCamera();
     }
 });
 
-// Inicialização da interface (opcional, pode deixar para o usuário clicar)
-// window.onload = () => {
-//     startButton.textContent = "Clique para Iniciar";
-// }
+// Inicializa a câmera ao carregar a página
+window.onload = startCamera;
