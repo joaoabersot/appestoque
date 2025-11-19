@@ -1,26 +1,40 @@
-const startButton = document.getElementById('startButton'); // Este botão será "Capturar & Ler"
+const startButton = document.getElementById('startButton');
 const codeList = document.getElementById('codeList');
-const video = document.createElement('video'); // Usaremos um elemento <video> para exibir a prévia da câmera
-const canvas = document.createElement('canvas'); // Usaremos um <canvas> para tirar a foto
-const interactive = document.getElementById('interactive'); // Div para conter o vídeo e o canvas
+const video = document.createElement('video');
+const canvas = document.createElement('canvas');
+const interactive = document.getElementById('interactive');
 
-// Adiciona o elemento de vídeo ao DOM para prévia da câmera
+// --- CORREÇÃO CRÍTICA: ADICIONANDO CANVAS AO DOM ---
+
+// Configura e adiciona o elemento de vídeo ao DOM para prévia da câmera
 video.style.width = '100%';
 video.style.height = 'auto';
 video.autoplay = true;
 interactive.appendChild(video);
 
+// Configura e adiciona o canvas ao DOM para captura de imagem
+canvas.style.width = '100%';
+canvas.style.height = 'auto';
+interactive.appendChild(canvas);
+canvas.style.display = 'none'; // Começa escondido
+
 // Contexto do canvas para desenhar a imagem
 const context = canvas.getContext('2d');
 
-let isCameraActive = false; // Estado para saber se a câmera está ligada
+// --- VARIÁVEIS DE ESTADO ---
+let isCameraActive = false;
+
+// --- FUNÇÕES DE CONTROLE ---
 
 // Função para iniciar a câmera e mostrar a prévia
 async function startCamera() {
     try {
+        startButton.disabled = true; // Desabilita enquanto busca a câmera
+        startButton.textContent = "Iniciando Câmera...";
+
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: {
-                facingMode: "environment", // Câmera traseira do celular
+                facingMode: "environment",
                 width: { ideal: 640 },
                 height: { ideal: 480 }
             }
@@ -28,13 +42,14 @@ async function startCamera() {
         video.srcObject = stream;
         video.play();
         isCameraActive = true;
+        
+        // Esconde o canvas e mostra o vídeo
+        canvas.style.display = 'none'; 
+        video.style.display = 'block';
+
         startButton.textContent = "Capturar & Ler Código";
         startButton.disabled = false;
         console.log("Câmera iniciada.");
-        
-        // Esconde o canvas quando a câmera está ativa para mostrar o vídeo
-        canvas.style.display = 'none'; 
-        video.style.display = 'block';
 
     } catch (err) {
         console.error("Erro ao acessar a câmera:", err);
@@ -47,17 +62,16 @@ async function startCamera() {
 // Função para parar a câmera
 function stopCamera() {
     if (video.srcObject) {
+        // Interrompe todas as tracks (vídeo e áudio, se houver)
         video.srcObject.getTracks().forEach(track => track.stop());
         video.srcObject = null;
     }
     isCameraActive = false;
-    startButton.textContent = "Iniciar Câmera";
-    startButton.disabled = false;
     console.log("Câmera parada.");
     
-    // Mostra o canvas (se houver imagem) ou esconde ambos se não for iniciar nova leitura
+    // Esconde o vídeo (mostrando a imagem capturada no canvas)
     video.style.display = 'none'; 
-    canvas.style.display = 'block'; // Mostra a última captura se houver
+    canvas.style.display = 'block'; 
 }
 
 // Função para capturar a imagem e processar
@@ -70,32 +84,29 @@ async function captureAndDecode() {
     startButton.disabled = true;
     startButton.textContent = "Decodificando...";
 
-    // Ajusta o tamanho do canvas para o tamanho do vídeo
+    // 1. Captura: Desenha o frame do vídeo no canvas
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Converte a imagem do canvas para Data URL (base64)
-    const imageDataURL = canvas.toDataURL('image/jpeg', 0.9);
-
-    // Esconde o vídeo e mostra a imagem capturada no canvas
-    video.style.display = 'none';
-    canvas.style.display = 'block';
-
-    // Para a câmera imediatamente após a captura
+    // 2. Para a câmera imediatamente
     stopCamera();
 
-    // Inicia a decodificação da imagem
+    // 3. Converte a imagem do canvas para Data URL (base64)
+    const imageDataURL = canvas.toDataURL('image/jpeg', 0.9);
+
+    // 4. Decodificação
     Quagga.decodeSingle({
         src: imageDataURL,
-        numOfWorkers: 0, // Importante para rodar na thread principal e ser mais rápido para uma única imagem
+        numOfWorkers: 0, 
         decoder: {
-            readers: ["ean_reader", "code_128_reader", "upc_reader", "code_39_reader", "ean_8_reader", "code_93_reader"]
+            // Garante que todos os tipos de código comuns sejam tentados
+            readers: ["ean_reader", "code_128_reader", "upc_reader", "code_39_reader", "ean_8_reader", "code_93_reader", "i2of5_reader"]
         },
     }, function(result) {
+        let message = "";
         if (result && result.codeResult) {
             const code = result.codeResult.code;
-            console.log("Código lido:", code);
             
             // Adiciona o código à lista
             const newItem = document.createElement('li');
@@ -103,27 +114,29 @@ async function captureAndDecode() {
             newItem.textContent = code;
             codeList.prepend(newItem);
 
-            // Feedback visual/sonoro
+            // Feedback
             if ('vibrate' in navigator) {
                 navigator.vibrate(200);
             }
-            startButton.textContent = "Sucesso! Iniciar Câmera para Nova Leitura";
+            message = `Sucesso! (${code}) Iniciar Nova Leitura`;
         } else {
-            console.log("Nenhum código encontrado na imagem.");
-            startButton.textContent = "Não Encontrado. Iniciar Câmera para Nova Leitura";
+            message = "Não Encontrado. Iniciar Câmera para Nova Leitura";
         }
-        startButton.disabled = false; // Habilita o botão para iniciar nova leitura
+
+        // 5. Atualiza o botão para Nova Leitura
+        startButton.textContent = message;
+        startButton.disabled = false;
     });
 }
 
 
-// Manipulador do botão principal
+// --- MANIPULADOR DO BOTÃO PRINCIPAL ---
 startButton.addEventListener('click', () => {
     if (isCameraActive) {
-        // Se a câmera já está ativa, o botão "Capturar & Ler"
+        // Câmera ativa -> Capturar e Decodificar
         captureAndDecode();
     } else {
-        // Se a câmera está parada, o botão "Iniciar Câmera"
+        // Câmera parada (após o resultado ou ao carregar) -> Iniciar Câmera
         startCamera();
     }
 });
