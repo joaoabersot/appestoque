@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leitor de Códigos Móvel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* Estilos básicos para o celular */
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
+        #interactive { width: 100%; height: 300px; } /* Área para a câmera */
+        #codeList { list-style: none; padding: 0; }
+        .codeItem { background: #f0f0f0; margin: 5px 0; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Leitor de Códigos</h1>
+    
+    <button id="startButton">Ativar Leitor</button>
+
+    <div id="interactive" class="viewport">
+        </div>
+    
+    <h2>Códigos Lidos:</h2>
+    <ul id="codeList">
+        </ul>
+    
+    <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+    
+    <script src="app.js"></script>
+</body>
+</html>
